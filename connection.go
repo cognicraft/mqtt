@@ -7,7 +7,7 @@ import (
 
 type Connection interface {
 	ID() string
-	On(callback func(topic string, data []byte))
+	OnMessage(callback func(topic string, data []byte))
 	Subscribe(topicFilter string, qos QoS) error
 	Unsubscribe(topicFilter string) error
 	Publish(topic string, data []byte) error
@@ -15,21 +15,21 @@ type Connection interface {
 }
 
 type connection struct {
-	server *Server
-	id     string
-	mu     sync.RWMutex
-	subs   map[string]QoS
-	on     func(string, []byte)
-	conn   net.Conn
+	queue     *Queue
+	id        string
+	mu        sync.RWMutex
+	subs      map[string]QoS
+	onMessage func(string, []byte)
+	conn      net.Conn
 }
 
 func (c *connection) ID() string {
 	return c.id
 }
 
-func (c *connection) On(callback func(topic string, data []byte)) {
+func (c *connection) OnMessage(callback func(topic string, data []byte)) {
 	c.mu.Lock()
-	c.on = callback
+	c.onMessage = callback
 	c.mu.Unlock()
 }
 
@@ -54,8 +54,8 @@ func (c *connection) Publish(topic string, data []byte) error {
 					return err
 				}
 			}
-			if c.on != nil {
-				c.on(topic, data)
+			if c.onMessage != nil {
+				c.onMessage(topic, data)
 			}
 		}
 	}
@@ -63,5 +63,5 @@ func (c *connection) Publish(topic string, data []byte) error {
 }
 
 func (c *connection) Close() error {
-	return c.server.disconnect(c.id)
+	return c.queue.disconnect(c.id)
 }

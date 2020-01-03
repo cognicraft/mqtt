@@ -8,12 +8,12 @@ import (
 	"time"
 )
 
-func Dial(clientID string, addr string) (*Conn, error) {
+func Dial(clientID string, addr string) (Connection, error) {
 	netConn, err := net.Dial("tcp", addr)
 	if err != nil {
 		return nil, err
 	}
-	c := &Conn{
+	c := &remoteConnection{
 		id:        clientID,
 		keepAlive: 30,
 		conn:      netConn,
@@ -22,7 +22,7 @@ func Dial(clientID string, addr string) (*Conn, error) {
 	return c, nil
 }
 
-type Conn struct {
+type remoteConnection struct {
 	done      chan struct{}
 	closed    chan struct{}
 	conn      io.ReadWriteCloser
@@ -30,37 +30,38 @@ type Conn struct {
 	keepAlive uint16
 	lastSend  time.Time
 	mu        sync.RWMutex
-	on        func(string, []byte)
+	onMessage func(string, []byte)
 }
 
-func (c *Conn) ID() string {
+func (c *remoteConnection) ID() string {
 	return c.id
 }
 
-func (c *Conn) On(callback func(topic string, data []byte)) {
+func (c *remoteConnection) OnMessage(callback func(topic string, data []byte)) {
 	c.mu.Lock()
-	c.on = callback
+	c.onMessage = callback
 	c.mu.Unlock()
 }
 
-func (c *Conn) Publish(topic string, data []byte) error {
+func (c *remoteConnection) Publish(topic string, data []byte) error {
 	return c.send(Publish{Topic: topic, Payload: data})
 }
 
-func (c *Conn) Subscribe(topicFilter string) error {
-	return c.send(Subscribe{TopicFilters: []TopicFilterQoS{{topicFilter, 0}}})
+func (c *remoteConnection) Subscribe(topicFilter string, qos QoS) error {
+	return c.send(Subscribe{TopicFilters: []TopicFilterQoS{{topicFilter, qos}}})
 }
-func (c *Conn) Unsubscribe(topicFilter string) error {
+
+func (c *remoteConnection) Unsubscribe(topicFilter string) error {
 	return c.send(Unsubscribe{TopicFilters: []string{topicFilter}})
 }
 
-func (c *Conn) Close() error {
+func (c *remoteConnection) Close() error {
 	close(c.done)
 	<-c.closed
 	return nil
 }
 
-func (c *Conn) run() {
+func (c *remoteConnection) run() {
 	c.closed = make(chan struct{})
 	c.done = make(chan struct{})
 	c.send(Connect{ClientID: c.id, KeepAlive: c.keepAlive, CleanSession: true})
@@ -90,7 +91,7 @@ func (c *Conn) run() {
 	}
 }
 
-func (c *Conn) send(v interface{}) error {
+func (c *remoteConnection) send(v interface{}) error {
 	if err := send(c.conn, v); err != nil {
 		return err
 	}
@@ -99,13 +100,13 @@ func (c *Conn) send(v interface{}) error {
 	return nil
 }
 
-func (c *Conn) received(v interface{}) {
+func (c *remoteConnection) received(v interface{}) {
 	// fmt.Printf("%s ← %#v\n", time.Now().UTC().Format(time.RFC3339), v)
 	switch v := v.(type) {
 	case *Publish:
 		c.mu.RLock()
-		if c.on != nil {
-			c.on(v.Topic, v.Payload)
+		if c.onMessage != nil {
+			c.onMessage(v.Topic, v.Payload)
 		}
 		c.mu.RUnlock()
 	}

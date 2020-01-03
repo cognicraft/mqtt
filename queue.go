@@ -18,33 +18,33 @@ func Errorf(format string, args ...interface{}) {
 	fmt.Printf(format, args...)
 }
 
-func NewServer(addr string) *Server {
-	return &Server{
-		Addr:   addr,
-		Errorf: Errorf,
+func NewQueue(bind string) *Queue {
+	return &Queue{
+		bind:   bind,
+		errorf: Errorf,
 
 		connections: map[string]Connection{},
 	}
 }
 
-type Server struct {
-	Addr   string
-	Errorf func(string, ...interface{})
+type Queue struct {
+	bind   string
+	errorf func(string, ...interface{})
 
 	done        chan struct{}
 	mu          sync.RWMutex
 	connections map[string]Connection
 }
 
-func (s *Server) Connect(id string) (Connection, error) {
-	return s.connect(id, nil)
+func (q *Queue) Connect(id string) (Connection, error) {
+	return q.connect(id, nil)
 }
 
-func (s *Server) Connections() []Connection {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+func (q *Queue) Connections() []Connection {
+	q.mu.RLock()
+	defer q.mu.RUnlock()
 	var cs []Connection
-	for _, c := range s.connections {
+	for _, c := range q.connections {
 		cs = append(cs, c)
 	}
 	sort.Slice(cs, func(i, j int) bool {
@@ -53,14 +53,27 @@ func (s *Server) Connections() []Connection {
 	return cs
 }
 
-func (s *Server) ListenAndServe() error {
-	ln, err := net.Listen("tcp", s.Addr)
+func (q *Queue) Publish(topic string, data []byte) {
+	q.mu.RLock()
+	defer q.mu.RUnlock()
+	for _, c := range q.connections {
+		c.Publish(topic, data)
+	}
+}
+
+func (q *Queue) Close() error {
+	close(q.done)
+	return nil
+}
+
+func (q *Queue) ListenAndServe() error {
+	ln, err := net.Listen("tcp", q.bind)
 	if err != nil {
 		return err
 	}
 	defer ln.Close()
 
-	s.done = make(chan struct{})
+	q.done = make(chan struct{})
 	var tempDelay time.Duration // how long to sleep on accept failure
 
 	for {
@@ -68,7 +81,7 @@ func (s *Server) ListenAndServe() error {
 
 		if err != nil {
 			select {
-			case <-s.done:
+			case <-q.done:
 				return nil
 			default:
 			}
@@ -83,23 +96,18 @@ func (s *Server) ListenAndServe() error {
 				if max := 1 * time.Second; tempDelay > max {
 					tempDelay = max
 				}
-				s.Errorf("server/ListenAndServe: Accept error: %v; retrying in %v", err, tempDelay)
+				q.errorf("server/ListenAndServe: Accept error: %v; retrying in %v", err, tempDelay)
 				time.Sleep(tempDelay)
 				continue
 			}
 			return err
 		}
 
-		go s.handleConnection(conn)
+		go q.handleConnection(conn)
 	}
 }
 
-func (s *Server) Close() error {
-	close(s.done)
-	return nil
-}
-
-func (s *Server) handleConnection(conn net.Conn) {
+func (q *Queue) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	in := make(chan interface{})
 	go func() {
@@ -129,7 +137,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 		case m := <-in:
 			switch m := m.(type) {
 			case *Connect:
-				if c, err = s.connect(m.ClientID, conn); err == nil {
+				if c, err = q.connect(m.ClientID, conn); err == nil {
 					keepAlive = time.Second * time.Duration(m.KeepAlive+10)
 					send(conn, ConnAck{})
 					defer c.Close()
@@ -151,7 +159,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 					}
 				}
 			case *Publish:
-				s.Publish(m.Topic, m.Payload)
+				q.Publish(m.Topic, m.Payload)
 				aux := ""
 				if len(m.Payload) > 0 && utf8.Valid(m.Payload) {
 					aux = fmt.Sprintf(", payload=%q", string(m.Payload))
@@ -169,31 +177,25 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}
 }
 
-func (s *Server) Publish(topic string, data []byte) {
-	for _, c := range s.connections {
-		c.Publish(topic, data)
-	}
-}
-
-func (s *Server) connect(id string, conn net.Conn) (Connection, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.connections[id]; ok {
+func (q *Queue) connect(id string, conn net.Conn) (Connection, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if _, ok := q.connections[id]; ok {
 		return nil, fmt.Errorf("connection with id already exists")
 	}
 	c := &connection{
-		server: s,
-		id:     id,
-		subs:   map[string]QoS{},
-		conn:   conn,
+		queue: q,
+		id:    id,
+		subs:  map[string]QoS{},
+		conn:  conn,
 	}
-	s.connections[id] = c
+	q.connections[id] = c
 	return c, nil
 }
 
-func (s *Server) disconnect(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.connections, id)
+func (q *Queue) disconnect(id string) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	delete(q.connections, id)
 	return nil
 }
