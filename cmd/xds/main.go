@@ -16,7 +16,7 @@ func main() {
 		log.Fatal(err)
 	}
 	sess.Subscribe("xds/#", 0)
-	sess.OnReceived(logAll)
+	sess.On(logAll)
 	NewCopyCat(s)
 	log.Fatal(s.ListenAndServe())
 }
@@ -30,15 +30,14 @@ func NewCopyCat(server *mqtt.Server) *CopyCat {
 		server: server,
 	}
 	s, _ := server.Connect("$cat")
-	s.Subscribe("hbd/1/temp", 0)
-	s.Subscribe("hbd/8/temp", 0)
-	s.OnReceived(c.Copy)
+	s.Subscribe("hbd/+/temp", 0)
+	s.On(c.Copy)
 	return c
 }
 
 type CopyCat struct {
 	server *mqtt.Server
-	s      mqtt.Session
+	con    mqtt.Connection
 }
 
 func (c *CopyCat) Copy(topic string, data []byte) {

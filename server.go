@@ -2,9 +2,13 @@ package mqtt
 
 import (
 	"fmt"
+	"io"
 	"net"
+	"sort"
 	"strings"
+	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 func Errorf(format string, args ...interface{}) {
@@ -19,7 +23,7 @@ func NewServer(addr string) *Server {
 		Addr:   addr,
 		Errorf: Errorf,
 
-		sessions: map[string]Session{},
+		connections: map[string]Connection{},
 	}
 }
 
@@ -27,14 +31,26 @@ type Server struct {
 	Addr   string
 	Errorf func(string, ...interface{})
 
-	done     chan struct{}
-	sessions map[string]Session
+	done        chan struct{}
+	mu          sync.RWMutex
+	connections map[string]Connection
 }
 
-func (s *Server) Connect(id string) (*LocalSession, error) {
-	sess := newLocalSession(s, id)
-	s.sessions[id] = sess
-	return sess, nil
+func (s *Server) Connect(id string) (Connection, error) {
+	return s.connect(id, nil)
+}
+
+func (s *Server) Connections() []Connection {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var cs []Connection
+	for _, c := range s.connections {
+		cs = append(cs, c)
+	}
+	sort.Slice(cs, func(i, j int) bool {
+		return cs[i].ID() < cs[j].ID()
+	})
+	return cs
 }
 
 func (s *Server) ListenAndServe() error {
@@ -84,6 +100,7 @@ func (s *Server) Close() error {
 }
 
 func (s *Server) handleConnection(conn net.Conn) {
+	defer conn.Close()
 	in := make(chan interface{})
 	go func() {
 		scanner := NewScanner(conn)
@@ -96,10 +113,15 @@ func (s *Server) handleConnection(conn net.Conn) {
 			}
 			in <- v
 		}
-		fmt.Printf("error: %+v\n", scanner.Err())
+		switch scanner.Err() {
+		case io.EOF:
+		default:
+			fmt.Printf("error: %+v\n", scanner.Err())
+		}
 	}()
 	keepAlive := time.Second * 15
-	var sess *RemoteSession
+	var c Connection
+	var err error
 	for {
 		select {
 		case <-time.After(keepAlive):
@@ -107,29 +129,71 @@ func (s *Server) handleConnection(conn net.Conn) {
 		case m := <-in:
 			switch m := m.(type) {
 			case *Connect:
-				sess = newRemoteSession(s, m.ClientID, conn)
-				s.sessions[sess.id] = sess
-				keepAlive = time.Second*time.Duration(m.KeepAlive) + 10
-				send(conn, ConnAck{})
+				if c, err = s.connect(m.ClientID, conn); err == nil {
+					keepAlive = time.Second * time.Duration(m.KeepAlive+10)
+					send(conn, ConnAck{})
+					defer c.Close()
+					fmt.Printf("[%s] Connect(keep-alive=%s)\n", c.ID(), keepAlive)
+				} else {
+					fmt.Printf("[%s] ERROR: %v\n", m.ClientID, err)
+					return
+				}
 			case *Subscribe:
 				for _, t := range m.TopicFilters {
-					sess.Subscribe(t.TopicFilter, t.QoS)
+					if err := c.Subscribe(t.TopicFilter, t.QoS); err == nil {
+						fmt.Printf("[%s] Subscribe(filter=%s, qos=%d)\n", c.ID(), t.TopicFilter, t.QoS)
+					}
 				}
 			case *Unsubscribe:
 				for _, t := range m.TopicFilters {
-					sess.Unsubscribe(t)
+					if err := c.Unsubscribe(t); err == nil {
+						fmt.Printf("[%s] Unsubscribe(filter=%s)\n", c.ID(), t)
+					}
 				}
 			case *Publish:
 				s.Publish(m.Topic, m.Payload)
+				aux := ""
+				if len(m.Payload) > 0 && utf8.Valid(m.Payload) {
+					aux = fmt.Sprintf(", payload=%q", string(m.Payload))
+				}
+				fmt.Printf("[%s] Publish(topic=%s%s)\n", c.ID(), m.Topic, aux)
+			case *Disconnect:
+				fmt.Printf("[%s] Disconnect()\n", c.ID())
+				return
+			case *PingReq:
+				// used for keep alive
 			default:
-				fmt.Printf("not handled: %#v\n", m)
+				fmt.Printf("[%s] unknown message: %#v\n", c.ID(), m)
 			}
 		}
 	}
 }
 
 func (s *Server) Publish(topic string, data []byte) {
-	for _, sess := range s.sessions {
-		sess.Publish(topic, data)
+	for _, c := range s.connections {
+		c.Publish(topic, data)
 	}
+}
+
+func (s *Server) connect(id string, conn net.Conn) (Connection, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.connections[id]; ok {
+		return nil, fmt.Errorf("connection with id already exists")
+	}
+	c := &connection{
+		server: s,
+		id:     id,
+		subs:   map[string]QoS{},
+		conn:   conn,
+	}
+	s.connections[id] = c
+	return c, nil
+}
+
+func (s *Server) disconnect(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.connections, id)
+	return nil
 }

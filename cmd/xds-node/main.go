@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"os"
+	"os/signal"
 	"time"
 
 	"github.com/cognicraft/mqtt"
@@ -14,16 +16,24 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	c.OnReceived(on)
+	c.On(on)
 	time.Sleep(time.Millisecond)
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt)
 	for {
-		// select {
-		// case <-time.After(1 * time.Millisecond):
-		for i := 1; i <= 8; i++ {
-			t := float64(rand.Intn(150) + 20)
-			publihTemperature(c, i, t)
+		select {
+		case s := <-signals:
+			switch s {
+			case os.Interrupt:
+				c.Close()
+				return
+			}
+		default:
+			for i := 1; i <= 8; i++ {
+				t := float64(rand.Intn(150) + 20)
+				publihTemperature(c, i, t)
+			}
 		}
-		// }
 	}
 }
 
