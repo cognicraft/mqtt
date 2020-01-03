@@ -11,25 +11,37 @@ import (
 	"unicode/utf8"
 )
 
-func Errorf(format string, args ...interface{}) {
+func Discardf(format string, args ...interface{}) {
+}
+
+func Printf(format string, args ...interface{}) {
 	if !strings.HasSuffix(format, "\n") {
 		format = format + "\n"
 	}
 	fmt.Printf(format, args...)
 }
 
-func NewQueue(bind string) *Queue {
-	return &Queue{
-		bind:   bind,
-		errorf: Errorf,
-
-		connections: map[string]Connection{},
+func Loger(logf func(string, ...interface{})) func(q *Queue) {
+	return func(q *Queue) {
+		q.logf = logf
 	}
 }
 
+func NewQueue(bind string, opts ...func(q *Queue)) *Queue {
+	q := &Queue{
+		bind:        bind,
+		logf:        Discardf,
+		connections: map[string]Connection{},
+	}
+	for _, opt := range opts {
+		opt(q)
+	}
+	return q
+}
+
 type Queue struct {
-	bind   string
-	errorf func(string, ...interface{})
+	bind string
+	logf func(string, ...interface{})
 
 	done        chan struct{}
 	mu          sync.RWMutex
@@ -96,7 +108,7 @@ func (q *Queue) ListenAndServe() error {
 				if max := 1 * time.Second; tempDelay > max {
 					tempDelay = max
 				}
-				q.errorf("server/ListenAndServe: Accept error: %v; retrying in %v", err, tempDelay)
+				q.logf("server/ListenAndServe: Accept error: %v; retrying in %v", err, tempDelay)
 				time.Sleep(tempDelay)
 				continue
 			}
@@ -116,7 +128,7 @@ func (q *Queue) handleConnection(conn net.Conn) {
 			msg := scanner.Message()
 			v, err := unmarshal(msg)
 			if err != nil {
-				fmt.Printf("error: %+v\n", err)
+				q.logf("error: %+v\n", err)
 				return
 			}
 			in <- v
@@ -124,7 +136,7 @@ func (q *Queue) handleConnection(conn net.Conn) {
 		switch scanner.Err() {
 		case io.EOF:
 		default:
-			fmt.Printf("error: %+v\n", scanner.Err())
+			q.logf("error: %+v\n", scanner.Err())
 		}
 	}()
 	keepAlive := time.Second * 15
@@ -141,21 +153,21 @@ func (q *Queue) handleConnection(conn net.Conn) {
 					keepAlive = time.Second * time.Duration(m.KeepAlive+10)
 					send(conn, ConnAck{})
 					defer c.Close()
-					fmt.Printf("[%s] Connect(keep-alive=%s)\n", c.ID(), keepAlive)
+					q.logf("[%s] Connect(keep-alive=%s)\n", c.ID(), keepAlive)
 				} else {
-					fmt.Printf("[%s] ERROR: %v\n", m.ClientID, err)
+					q.logf("[%s] ERROR: %v\n", m.ClientID, err)
 					return
 				}
 			case *Subscribe:
 				for _, t := range m.TopicFilters {
 					if err := c.Subscribe(t.TopicFilter, t.QoS); err == nil {
-						fmt.Printf("[%s] Subscribe(filter=%s, qos=%d)\n", c.ID(), t.TopicFilter, t.QoS)
+						q.logf("[%s] Subscribe(filter=%s, qos=%d)\n", c.ID(), t.TopicFilter, t.QoS)
 					}
 				}
 			case *Unsubscribe:
 				for _, t := range m.TopicFilters {
 					if err := c.Unsubscribe(t); err == nil {
-						fmt.Printf("[%s] Unsubscribe(filter=%s)\n", c.ID(), t)
+						q.logf("[%s] Unsubscribe(filter=%s)\n", c.ID(), t)
 					}
 				}
 			case *Publish:
@@ -164,14 +176,14 @@ func (q *Queue) handleConnection(conn net.Conn) {
 				if len(m.Payload) > 0 && utf8.Valid(m.Payload) {
 					aux = fmt.Sprintf(", payload=%q", string(m.Payload))
 				}
-				fmt.Printf("[%s] Publish(topic=%s%s)\n", c.ID(), m.Topic, aux)
+				q.logf("[%s] Publish(topic=%s%s)\n", c.ID(), m.Topic, aux)
 			case *Disconnect:
-				fmt.Printf("[%s] Disconnect()\n", c.ID())
+				q.logf("[%s] Disconnect()\n", c.ID())
 				return
 			case *PingReq:
 				// used for keep alive
 			default:
-				fmt.Printf("[%s] unknown message: %#v\n", c.ID(), m)
+				q.logf("[%s] unknown message: %#v\n", c.ID(), m)
 			}
 		}
 	}

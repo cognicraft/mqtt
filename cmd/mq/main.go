@@ -71,7 +71,7 @@ func doVersion() error {
 }
 
 func doQueue(bind string) error {
-	s := mqtt.NewQueue(bind)
+	s := mqtt.NewQueue(bind, mqtt.Loger(mqtt.Printf))
 	return s.ListenAndServe()
 }
 
