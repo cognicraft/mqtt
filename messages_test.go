@@ -10,11 +10,11 @@ import (
 func TestType(t *testing.T) {
 	tests := []struct {
 		name string
-		msg  Message
+		msg  RawMessage
 		out  ControlPacketType
 	}{
-		{"connect", Message{0x10, 0x00}, CONNECT},
-		{"connack", Message{0x20, 0x00}, CONNACK},
+		{"connect", RawMessage{0x10, 0x00}, CONNECT},
+		{"connack", RawMessage{0x20, 0x00}, CONNACK},
 	}
 
 	for _, test := range tests {
@@ -31,10 +31,10 @@ func TestType(t *testing.T) {
 func TestFlags(t *testing.T) {
 	tests := []struct {
 		name string
-		msg  Message
+		msg  RawMessage
 		out  byte
 	}{
-		{"connect", Message{0x10, 0x00}, 0},
+		{"connect", RawMessage{0x10, 0x00}, 0},
 	}
 
 	for _, test := range tests {

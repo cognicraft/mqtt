@@ -67,7 +67,7 @@ func (c *connection) Publish(topic Topic, data []byte) error {
 				}
 			}
 			if c.handler != nil {
-				c.handler.HandleMQTT(c, topic, data)
+				c.handler.HandleMQTT(c, Message{Topic: topic, Payload: data})
 			}
 		}
 	}

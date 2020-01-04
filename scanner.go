@@ -9,7 +9,7 @@ import (
 type Scanner struct {
 	in  *bufio.Reader
 	err error
-	msg Message
+	msg RawMessage
 }
 
 func NewScanner(in io.Reader) *Scanner {
@@ -18,7 +18,7 @@ func NewScanner(in io.Reader) *Scanner {
 	}
 }
 
-func (s *Scanner) Message() Message {
+func (s *Scanner) Message() RawMessage {
 	return s.msg
 }
 
@@ -47,7 +47,7 @@ func (s *Scanner) Scan() bool {
 		return false
 	}
 	buf.Write(body)
-	s.msg = Message(buf.Bytes())
+	s.msg = RawMessage(buf.Bytes())
 	return true
 }
 

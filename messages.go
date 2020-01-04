@@ -29,7 +29,7 @@ func Unmarshal(data []byte, v interface{}) error {
 	return fmt.Errorf("unable to unmarshal into: %v", v)
 }
 
-func unmarshal(m Message) (interface{}, error) {
+func unmarshal(m RawMessage) (interface{}, error) {
 	var un Unmarshaler
 	switch m.Type() {
 	case CONNECT:
@@ -67,20 +67,20 @@ func unmarshal(m Message) (interface{}, error) {
 	return un, err
 }
 
-type Message []byte
+type RawMessage []byte
 
-func (m Message) Type() ControlPacketType {
+func (m RawMessage) Type() ControlPacketType {
 	b := m[0]
 	cp := b >> 4
 	return ControlPacketType(cp)
 }
 
-func (m Message) Flags() byte {
+func (m RawMessage) Flags() byte {
 	b := m[0]
 	return b & 0x0F
 }
 
-func (m Message) Body() []byte {
+func (m RawMessage) Body() []byte {
 	rl, err := decodeRemainingLength(m[1:])
 	if err != nil {
 		// invalid remaining length
@@ -96,7 +96,7 @@ func (m Message) Body() []byte {
 	return body
 }
 
-func (m Message) String() string {
+func (m RawMessage) String() string {
 	return fmt.Sprintf("%s %x %x", m.Type(), m.Flags(), m.Body())
 }
 
@@ -301,7 +301,7 @@ func (m Connect) MarshalMQTT() ([]byte, error) {
 }
 
 func (m *Connect) UnmarshalMQTT(data []byte) error {
-	raw := Message(data)
+	raw := RawMessage(data)
 	if raw.Type() != CONNECT {
 		return fmt.Errorf("invalid control packet type: %s", raw.Type())
 	}
@@ -379,7 +379,7 @@ func (m ConnAck) MarshalMQTT() ([]byte, error) {
 }
 
 func (m *ConnAck) UnmarshalMQTT(data []byte) error {
-	raw := Message(data)
+	raw := RawMessage(data)
 	if raw.Type() != CONNACK {
 		return fmt.Errorf("invalid control packet type: %s", raw.Type())
 	}
@@ -438,7 +438,7 @@ func (m Publish) MarshalMQTT() ([]byte, error) {
 }
 
 func (m *Publish) UnmarshalMQTT(data []byte) error {
-	raw := Message(data)
+	raw := RawMessage(data)
 	if raw.Type() != PUBLISH {
 		return fmt.Errorf("invalid control packet type: %s", raw.Type())
 	}
@@ -470,7 +470,7 @@ func (m PubAck) MarshalMQTT() ([]byte, error) {
 }
 
 func (m *PubAck) UnmarshalMQTT(data []byte) error {
-	raw := Message(data)
+	raw := RawMessage(data)
 	if raw.Type() != PUBACK {
 		return fmt.Errorf("invalid control packet type: %s", raw.Type())
 	}
@@ -496,7 +496,7 @@ func (m PubRec) MarshalMQTT() ([]byte, error) {
 }
 
 func (m *PubRec) UnmarshalMQTT(data []byte) error {
-	raw := Message(data)
+	raw := RawMessage(data)
 	if raw.Type() != PUBREC {
 		return fmt.Errorf("invalid control packet type: %s", raw.Type())
 	}
@@ -522,7 +522,7 @@ func (m PubRel) MarshalMQTT() ([]byte, error) {
 }
 
 func (m *PubRel) UnmarshalMQTT(data []byte) error {
-	raw := Message(data)
+	raw := RawMessage(data)
 	if raw.Type() != PUBREL {
 		return fmt.Errorf("invalid control packet type: %s", raw.Type())
 	}
@@ -548,7 +548,7 @@ func (m PubComp) MarshalMQTT() ([]byte, error) {
 }
 
 func (m *PubComp) UnmarshalMQTT(data []byte) error {
-	raw := Message(data)
+	raw := RawMessage(data)
 	if raw.Type() != PUBCOMP {
 		return fmt.Errorf("invalid control packet type: %s", raw.Type())
 	}
@@ -583,7 +583,7 @@ func (m Subscribe) MarshalMQTT() ([]byte, error) {
 }
 
 func (m *Subscribe) UnmarshalMQTT(data []byte) error {
-	raw := Message(data)
+	raw := RawMessage(data)
 	if raw.Type() != SUBSCRIBE {
 		return fmt.Errorf("invalid control packet type: %s", raw.Type())
 	}
@@ -628,7 +628,7 @@ func (m SubAck) MarshalMQTT() ([]byte, error) {
 }
 
 func (m *SubAck) UnmarshalMQTT(data []byte) error {
-	raw := Message(data)
+	raw := RawMessage(data)
 	if raw.Type() != SUBACK {
 		return fmt.Errorf("invalid control packet type: %s", raw.Type())
 	}
@@ -675,7 +675,7 @@ func (m Unsubscribe) MarshalMQTT() ([]byte, error) {
 }
 
 func (m *Unsubscribe) UnmarshalMQTT(data []byte) error {
-	raw := Message(data)
+	raw := RawMessage(data)
 	if raw.Type() != UNSUBSCRIBE {
 		return fmt.Errorf("invalid control packet type: %s", raw.Type())
 	}
@@ -704,7 +704,7 @@ func (m UnsubAck) MarshalMQTT() ([]byte, error) {
 }
 
 func (m *UnsubAck) UnmarshalMQTT(data []byte) error {
-	raw := Message(data)
+	raw := RawMessage(data)
 	if raw.Type() != UNSUBACK {
 		return fmt.Errorf("invalid control packet type: %s", raw.Type())
 	}
@@ -728,7 +728,7 @@ func (m PingReq) MarshalMQTT() ([]byte, error) {
 }
 
 func (m *PingReq) UnmarshalMQTT(data []byte) error {
-	raw := Message(data)
+	raw := RawMessage(data)
 	if raw.Type() != PINGREQ {
 		return fmt.Errorf("invalid control packet type: %s", raw.Type())
 	}
@@ -746,7 +746,7 @@ func (m PingResp) MarshalMQTT() ([]byte, error) {
 }
 
 func (m *PingResp) UnmarshalMQTT(data []byte) error {
-	raw := Message(data)
+	raw := RawMessage(data)
 	if raw.Type() != PINGRESP {
 		return fmt.Errorf("invalid control packet type: %s", raw.Type())
 	}
@@ -764,7 +764,7 @@ func (m Disconnect) MarshalMQTT() ([]byte, error) {
 }
 
 func (m *Disconnect) UnmarshalMQTT(data []byte) error {
-	raw := Message(data)
+	raw := RawMessage(data)
 	if raw.Type() != DISCONNECT {
 		return fmt.Errorf("invalid control packet type: %s", raw.Type())
 	}

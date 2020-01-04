@@ -86,13 +86,13 @@ func doDial(clientID string, addr string) error {
 		fmt.Printf("mq ← ")
 	}
 
-	c.SetHandler(mqtt.HandlerFunc(func(c mqtt.Connection, topic mqtt.Topic, data []byte) {
+	c.SetHandler(mqtt.HandlerFunc(func(c mqtt.Connection, m mqtt.Message) {
 		d := "[*]"
-		if len(data) > 0 && utf8.Valid(data) {
-			d = string(data)
+		if len(m.Payload) > 0 && utf8.Valid(m.Payload) {
+			d = string(m.Payload)
 		}
 
-		fmt.Printf("\rmq → %s %s\n", topic, d)
+		fmt.Printf("\rmq → %s %s\n", m.Topic, d)
 		prompt()
 	}))
 

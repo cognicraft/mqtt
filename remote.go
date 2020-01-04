@@ -113,7 +113,7 @@ func (c *remoteConnection) received(v interface{}) {
 	case *Publish:
 		c.mu.RLock()
 		if c.handler != nil {
-			c.handler.HandleMQTT(c, v.Topic, v.Payload)
+			c.handler.HandleMQTT(c, Message{Topic: v.Topic, Payload: v.Payload})
 		}
 		c.mu.RUnlock()
 	}
