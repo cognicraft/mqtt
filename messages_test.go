@@ -117,7 +117,7 @@ func TestMarshalUnmarshal(t *testing.T) {
 		{"PUBCOMP", &PubComp{ID: 10}, &PubComp{}},
 		{"SUBSCRIBE", &Subscribe{ID: 10, TopicFilters: []TopicFilterQoS{{"a/b", 1}, {"c/d", 2}}}, &Subscribe{}},
 		{"SUBACK", &SubAck{ID: 10, ReturnCodes: []ReturnCode{ReturnCodeFailure, ReturnCodeSuccessQoS0, ReturnCodeSuccessQoS1, ReturnCodeSuccessQoS2}}, &SubAck{}},
-		{"UNSUBSCRIBE", &Unsubscribe{ID: 10, TopicFilters: []string{"a/b", "c/d"}}, &Unsubscribe{}},
+		{"UNSUBSCRIBE", &Unsubscribe{ID: 10, TopicFilters: []Topic{"a/b", "c/d"}}, &Unsubscribe{}},
 		{"UNSUBACK", &UnsubAck{ID: 10}, &UnsubAck{}},
 		{"PINGREQ", &PingReq{}, &PingReq{}},
 		{"PINGRESP", &PingResp{}, &PingResp{}},

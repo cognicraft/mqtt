@@ -86,7 +86,7 @@ func doDial(clientID string, addr string) error {
 		fmt.Printf("mq ← ")
 	}
 
-	c.OnMessage(func(topic string, data []byte) {
+	c.SetHandler(mqtt.HandlerFunc(func(c mqtt.Connection, topic mqtt.Topic, data []byte) {
 		d := "[*]"
 		if len(data) > 0 && utf8.Valid(data) {
 			d = string(data)
@@ -94,7 +94,7 @@ func doDial(clientID string, addr string) error {
 
 		fmt.Printf("\rmq → %s %s\n", topic, d)
 		prompt()
-	})
+	}))
 
 	prompt()
 	scanner := bufio.NewScanner(os.Stdin)
@@ -106,15 +106,15 @@ func doDial(clientID string, addr string) error {
 		}
 		switch ps[0] {
 		case "subscribe", "sub", "s":
-			if err := c.Subscribe(ps[1], 0); err != nil {
+			if err := c.Subscribe(mqtt.Topic(ps[1]), 0); err != nil {
 				fmt.Printf("ERROR: %v\n", err)
 			}
 		case "unsubscribe", "unsub", "u":
-			if err := c.Unsubscribe(ps[1]); err != nil {
+			if err := c.Unsubscribe(mqtt.Topic(ps[1])); err != nil {
 				fmt.Printf("ERROR: %v\n", err)
 			}
 		case "publish", "pub", "p":
-			if err := c.Publish(ps[1], []byte(strings.Join(ps[2:], " "))); err != nil {
+			if err := c.Publish(mqtt.Topic(ps[1]), []byte(strings.Join(ps[2:], " "))); err != nil {
 				fmt.Printf("ERROR: %v\n", err)
 			}
 		case "close", "exit", "q":

@@ -7,55 +7,67 @@ import (
 
 type Connection interface {
 	ID() string
-	OnMessage(callback func(topic string, data []byte))
-	Subscribe(topicFilter string, qos QoS) error
-	Unsubscribe(topicFilter string) error
-	Publish(topic string, data []byte) error
+	SetHandler(h Handler) error
+	Handler() Handler
+	Subscribe(topicFilter Topic, qos QoS) error
+	Unsubscribe(topicFilter Topic) error
+	Publish(topic Topic, data []byte) error
 	Close() error
 }
 
 type connection struct {
-	queue     *Queue
-	id        string
-	mu        sync.RWMutex
-	subs      map[string]QoS
-	onMessage func(string, []byte)
-	conn      net.Conn
+	queue   *Queue
+	id      string
+	mu      sync.RWMutex
+	subs    map[Topic]QoS
+	handler Handler
+	conn    net.Conn
 }
 
 func (c *connection) ID() string {
 	return c.id
 }
 
-func (c *connection) OnMessage(callback func(topic string, data []byte)) {
+func (c *connection) SetHandler(handler Handler) error {
 	c.mu.Lock()
-	c.onMessage = callback
-	c.mu.Unlock()
+	defer c.mu.Unlock()
+	c.handler = handler
+	return nil
 }
 
-func (c *connection) Subscribe(topicFilter string, qos QoS) error {
+func (c *connection) Handler() Handler {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.handler
+}
+
+func (c *connection) Subscribe(topicFilter Topic, qos QoS) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.subs[topicFilter] = qos
 	return nil
 }
 
-func (c *connection) Unsubscribe(topicFilter string) error {
+func (c *connection) Unsubscribe(topicFilter Topic) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	delete(c.subs, topicFilter)
 	return nil
 }
 
-func (c *connection) Publish(topic string, data []byte) error {
+func (c *connection) Publish(topic Topic, data []byte) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	for t, _ := range c.subs {
-		if Topic(t).Accept(Topic(topic)) {
+		if t.Accept(topic) {
 			if c.conn != nil {
-				err := send(c.conn, Publish{Topic: string(topic), Payload: data})
+				err := send(c.conn, Publish{Topic: topic, Payload: data})
 				if err != nil {
 					return err
 				}
 			}
-			if c.onMessage != nil {
-				c.onMessage(topic, data)
+			if c.handler != nil {
+				c.handler.HandleMQTT(c, topic, data)
 			}
 		}
 	}

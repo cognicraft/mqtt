@@ -30,29 +30,36 @@ type remoteConnection struct {
 	keepAlive uint16
 	lastSend  time.Time
 	mu        sync.RWMutex
-	onMessage func(string, []byte)
+	handler   Handler
 }
 
 func (c *remoteConnection) ID() string {
 	return c.id
 }
 
-func (c *remoteConnection) OnMessage(callback func(topic string, data []byte)) {
+func (c *remoteConnection) SetHandler(handler Handler) error {
 	c.mu.Lock()
-	c.onMessage = callback
-	c.mu.Unlock()
+	defer c.mu.Unlock()
+	c.handler = handler
+	return nil
 }
 
-func (c *remoteConnection) Publish(topic string, data []byte) error {
+func (c *remoteConnection) Handler() Handler {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.handler
+}
+
+func (c *remoteConnection) Publish(topic Topic, data []byte) error {
 	return c.send(Publish{Topic: topic, Payload: data})
 }
 
-func (c *remoteConnection) Subscribe(topicFilter string, qos QoS) error {
+func (c *remoteConnection) Subscribe(topicFilter Topic, qos QoS) error {
 	return c.send(Subscribe{TopicFilters: []TopicFilterQoS{{topicFilter, qos}}})
 }
 
-func (c *remoteConnection) Unsubscribe(topicFilter string) error {
-	return c.send(Unsubscribe{TopicFilters: []string{topicFilter}})
+func (c *remoteConnection) Unsubscribe(topicFilter Topic) error {
+	return c.send(Unsubscribe{TopicFilters: []Topic{topicFilter}})
 }
 
 func (c *remoteConnection) Close() error {
@@ -105,8 +112,8 @@ func (c *remoteConnection) received(v interface{}) {
 	switch v := v.(type) {
 	case *Publish:
 		c.mu.RLock()
-		if c.onMessage != nil {
-			c.onMessage(v.Topic, v.Payload)
+		if c.handler != nil {
+			c.handler.HandleMQTT(c, v.Topic, v.Payload)
 		}
 		c.mu.RUnlock()
 	}

@@ -250,7 +250,7 @@ type Connect struct {
 }
 
 type Will struct {
-	Topic   string
+	Topic   Topic
 	Payload []byte
 	QoS     QoS
 	Retain  bool
@@ -282,7 +282,7 @@ func (m Connect) MarshalMQTT() ([]byte, error) {
 	body.WriteUint16(m.KeepAlive)
 	body.WriteMQTTString(m.ClientID)
 	if m.Will != nil {
-		body.WriteMQTTString(m.Will.Topic)
+		body.WriteMQTTString(string(m.Will.Topic))
 		body.WriteUint16(uint16(len(m.Will.Payload)))
 		body.Write(m.Will.Payload)
 	}
@@ -320,7 +320,7 @@ func (m *Connect) UnmarshalMQTT(data []byte) error {
 	m.ClientID = body.ReadMQTTString()
 	if isSet(fields, maskConnectWill) {
 		w := Will{}
-		w.Topic = body.ReadMQTTString()
+		w.Topic = Topic(body.ReadMQTTString())
 		l, _ := body.ReadUint16()
 		w.Payload = make([]byte, l)
 		body.Read(w.Payload)
@@ -405,7 +405,7 @@ const (
 
 type Publish struct {
 	ID      uint16
-	Topic   string
+	Topic   Topic
 	Payload []byte
 	DUP     bool
 	QoS     QoS
@@ -426,7 +426,7 @@ func (m Publish) MarshalMQTT() ([]byte, error) {
 	buf.WriteByte(TypeFlags(PUBLISH, flags))
 
 	body := newBuffer(nil)
-	body.WriteMQTTString(m.Topic)
+	body.WriteMQTTString(string(m.Topic))
 	if m.QoS == 1 || m.QoS == 2 {
 		body.WriteUint16(m.ID)
 	}
@@ -447,7 +447,7 @@ func (m *Publish) UnmarshalMQTT(data []byte) error {
 	m.QoS = QoS((flags >> 1) & 0x03)
 	m.Retain = flags&0x01 == 0x01
 	body := newBuffer(raw.Body())
-	m.Topic = body.ReadMQTTString()
+	m.Topic = Topic(body.ReadMQTTString())
 	if m.QoS == 1 || m.QoS == 2 {
 		m.ID, _ = body.ReadUint16()
 	}
@@ -573,7 +573,7 @@ func (m Subscribe) MarshalMQTT() ([]byte, error) {
 	body := newBuffer(nil)
 	body.WriteUint16(m.ID)
 	for _, t := range m.TopicFilters {
-		body.WriteMQTTString(t.TopicFilter)
+		body.WriteMQTTString(string(t.TopicFilter))
 		body.WriteByte(byte(t.QoS))
 	}
 
@@ -591,7 +591,7 @@ func (m *Subscribe) UnmarshalMQTT(data []byte) error {
 	m.ID, _ = body.ReadUint16()
 	for {
 		t := TopicFilterQoS{}
-		t.TopicFilter = body.ReadMQTTString()
+		t.TopicFilter = Topic(body.ReadMQTTString())
 		qos, _ := body.ReadByte()
 		t.QoS = QoS(qos)
 		m.TopicFilters = append(m.TopicFilters, t)
@@ -603,7 +603,7 @@ func (m *Subscribe) UnmarshalMQTT(data []byte) error {
 }
 
 type TopicFilterQoS struct {
-	TopicFilter string
+	TopicFilter Topic
 	QoS         QoS
 }
 
@@ -656,7 +656,7 @@ const (
 
 type Unsubscribe struct {
 	ID           uint16
-	TopicFilters []string
+	TopicFilters []Topic
 }
 
 func (m Unsubscribe) MarshalMQTT() ([]byte, error) {
@@ -666,7 +666,7 @@ func (m Unsubscribe) MarshalMQTT() ([]byte, error) {
 	body := newBuffer(nil)
 	body.WriteUint16(m.ID)
 	for _, t := range m.TopicFilters {
-		body.WriteMQTTString(t)
+		body.WriteMQTTString(string(t))
 	}
 
 	buf.WriteRemainingLength(body.Len())
@@ -683,7 +683,7 @@ func (m *Unsubscribe) UnmarshalMQTT(data []byte) error {
 	m.ID, _ = body.ReadUint16()
 	for {
 		t := body.ReadMQTTString()
-		m.TopicFilters = append(m.TopicFilters, t)
+		m.TopicFilters = append(m.TopicFilters, Topic(t))
 		if body.Len() == 0 {
 			break
 		}

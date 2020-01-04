@@ -65,7 +65,7 @@ func (q *Queue) Connections() []Connection {
 	return cs
 }
 
-func (q *Queue) Publish(topic string, data []byte) {
+func (q *Queue) Publish(topic Topic, data []byte) {
 	q.mu.RLock()
 	defer q.mu.RUnlock()
 	for _, c := range q.connections {
@@ -198,7 +198,7 @@ func (q *Queue) connect(id string, conn net.Conn) (Connection, error) {
 	c := &connection{
 		queue: q,
 		id:    id,
-		subs:  map[string]QoS{},
+		subs:  map[Topic]QoS{},
 		conn:  conn,
 	}
 	q.connections[id] = c
