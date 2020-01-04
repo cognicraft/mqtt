@@ -1,6 +1,9 @@
 package mqtt
 
-import "sync"
+import (
+	"sort"
+	"sync"
+)
 
 var _ Handler = (*Router)(nil)
 
@@ -15,16 +18,27 @@ type Router struct {
 	handlers map[Topic]Handler
 }
 
-func (r *Router) On(t Topic, h Handler) {
+func (r *Router) On(f Topic, h Handler) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.handlers[t] = h
+	r.handlers[f] = h
 }
 
-func (r *Router) Off(t Topic) {
+func (r *Router) Off(f Topic) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	delete(r.handlers, t)
+	delete(r.handlers, f)
+}
+
+func (r *Router) Filters() []Topic {
+	var fs []Topic
+	for f := range r.handlers {
+		fs = append(fs, f)
+	}
+	sort.Slice(fs, func(i, j int) bool {
+		return fs[i] < fs[j]
+	})
+	return fs
 }
 
 func (r *Router) HandleMQTT(c Connection, m Message) {
