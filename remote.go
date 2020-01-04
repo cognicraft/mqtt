@@ -17,6 +17,7 @@ func Dial(clientID string, addr string) (Connection, error) {
 		id:        clientID,
 		keepAlive: 30,
 		conn:      netConn,
+		subs:      map[Topic]sub{},
 	}
 	go c.run()
 	return c, nil
@@ -30,36 +31,35 @@ type remoteConnection struct {
 	keepAlive uint16
 	lastSend  time.Time
 	mu        sync.RWMutex
-	handler   Handler
+	subs      map[Topic]sub
 }
 
 func (c *remoteConnection) ID() string {
 	return c.id
 }
 
-func (c *remoteConnection) SetHandler(handler Handler) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.handler = handler
-	return nil
-}
-
-func (c *remoteConnection) Handler() Handler {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.handler
-}
-
 func (c *remoteConnection) Publish(topic Topic, data []byte) error {
 	return c.send(Publish{Topic: topic, Payload: data})
 }
 
-func (c *remoteConnection) Subscribe(topicFilter Topic, qos QoS) error {
-	return c.send(Subscribe{TopicFilters: []TopicFilterQoS{{topicFilter, qos}}})
+func (c *remoteConnection) Subscribe(topicFilter Topic, qos QoS, handler Handler) error {
+	err := c.send(Subscribe{TopicFilters: []TopicFilterQoS{{topicFilter, qos}}})
+	if err == nil {
+		c.mu.Lock()
+		c.subs[topicFilter] = sub{filter: topicFilter, qos: qos, handler: handler}
+		c.mu.Unlock()
+	}
+	return err
 }
 
 func (c *remoteConnection) Unsubscribe(topicFilter Topic) error {
-	return c.send(Unsubscribe{TopicFilters: []Topic{topicFilter}})
+	err := c.send(Unsubscribe{TopicFilters: []Topic{topicFilter}})
+	if err == nil {
+		c.mu.Lock()
+		delete(c.subs, topicFilter)
+		c.mu.Unlock()
+	}
+	return err
 }
 
 func (c *remoteConnection) Close() error {
@@ -112,8 +112,10 @@ func (c *remoteConnection) received(v interface{}) {
 	switch v := v.(type) {
 	case *Publish:
 		c.mu.RLock()
-		if c.handler != nil {
-			c.handler.HandleMQTT(c, Message{Topic: v.Topic, Payload: v.Payload})
+		for _, sub := range c.subs {
+			if sub.filter.Accept(v.Topic) && sub.handler != nil {
+				sub.handler.HandleMQTT(c, Message{Topic: v.Topic, Payload: v.Payload})
+			}
 		}
 		c.mu.RUnlock()
 	}

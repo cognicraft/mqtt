@@ -160,7 +160,7 @@ func (q *Queue) handleConnection(conn net.Conn) {
 				}
 			case *Subscribe:
 				for _, t := range m.TopicFilters {
-					if err := c.Subscribe(t.TopicFilter, t.QoS); err == nil {
+					if err := c.Subscribe(t.TopicFilter, t.QoS, nil); err == nil {
 						q.logf("[%s] Subscribe(filter=%s, qos=%d)\n", c.ID(), t.TopicFilter, t.QoS)
 					}
 				}
@@ -198,7 +198,7 @@ func (q *Queue) connect(id string, conn net.Conn) (Connection, error) {
 	c := &connection{
 		queue: q,
 		id:    id,
-		subs:  map[Topic]QoS{},
+		subs:  map[Topic]sub{},
 		conn:  conn,
 	}
 	q.connections[id] = c
