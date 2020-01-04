@@ -81,6 +81,10 @@ func doDial(clientID string, addr string) error {
 		return err
 	}
 	defer c.Close()
+	c.OnClose(func(c mqtt.Connection) {
+		fmt.Printf("\r")
+		os.Exit(0)
+	})
 
 	prompt := func() {
 		fmt.Printf("mq ← ")
@@ -117,7 +121,7 @@ func doDial(clientID string, addr string) error {
 			if err := c.Publish(mqtt.Topic(ps[1]), []byte(strings.Join(ps[2:], " "))); err != nil {
 				fmt.Printf("ERROR: %v\n", err)
 			}
-		case "close", "exit", "q":
+		case "close", "exit", "quit", "q":
 			return nil
 		default:
 			fmt.Printf("ERROR: %v\n", fmt.Errorf("unrecognized command: %s", ps[0]))

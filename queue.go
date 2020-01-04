@@ -121,14 +121,13 @@ func (q *Queue) ListenAndServe() error {
 
 func (q *Queue) handleConnection(netConn net.Conn) {
 	defer netConn.Close()
-
 	publisher := HandlerFunc(func(c Connection, m Message) {
 		send(netConn, Publish{Topic: m.Topic, Payload: m.Payload})
 	})
 
 	in := make(chan interface{})
-	defer close(in)
 	go func() {
+		defer close(in)
 		scanner := NewScanner(netConn)
 		for scanner.Scan() {
 			msg := scanner.Message()

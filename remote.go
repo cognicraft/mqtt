@@ -31,6 +31,7 @@ type remoteConnection struct {
 	keepAlive uint16
 	lastSend  time.Time
 	mu        sync.RWMutex
+	onClose   func(Connection)
 	subs      map[Topic]sub
 }
 
@@ -65,6 +66,12 @@ func (c *remoteConnection) Unsubscribe(topicFilter Topic) error {
 	return err
 }
 
+func (c *remoteConnection) OnClose(f func(c Connection)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.onClose = f
+}
+
 func (c *remoteConnection) Close() error {
 	close(c.done)
 	<-c.closed
@@ -72,12 +79,17 @@ func (c *remoteConnection) Close() error {
 }
 
 func (c *remoteConnection) run() {
+	defer func() {
+		if c.onClose != nil {
+			c.onClose(c)
+		}
+	}()
 	c.closed = make(chan struct{})
 	c.done = make(chan struct{})
 
 	in := make(chan interface{})
-	defer close(in)
 	go func() {
+		defer close(in)
 		scanner := NewScanner(c.conn)
 		for scanner.Scan() {
 			msg := scanner.Message()
