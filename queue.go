@@ -49,7 +49,7 @@ type Queue struct {
 }
 
 func (q *Queue) Connect(id string) (Connection, error) {
-	return q.connect(id, nil)
+	return q.connect(id)
 }
 
 func (q *Queue) Connections() []Connection {
@@ -119,11 +119,17 @@ func (q *Queue) ListenAndServe() error {
 	}
 }
 
-func (q *Queue) handleConnection(conn net.Conn) {
-	defer conn.Close()
+func (q *Queue) handleConnection(netConn net.Conn) {
+	defer netConn.Close()
+
+	publisher := HandlerFunc(func(c Connection, m Message) {
+		send(netConn, Publish{Topic: m.Topic, Payload: m.Payload})
+	})
+
 	in := make(chan interface{})
+	defer close(in)
 	go func() {
-		scanner := NewScanner(conn)
+		scanner := NewScanner(netConn)
 		for scanner.Scan() {
 			msg := scanner.Message()
 			v, err := unmarshal(msg)
@@ -146,12 +152,15 @@ func (q *Queue) handleConnection(conn net.Conn) {
 		select {
 		case <-time.After(keepAlive):
 			return
-		case m := <-in:
+		case m, ok := <-in:
+			if !ok {
+				return
+			}
 			switch m := m.(type) {
 			case *Connect:
-				if c, err = q.connect(m.ClientID, conn); err == nil {
+				if c, err = q.connect(m.ClientID); err == nil {
 					keepAlive = time.Second * time.Duration(m.KeepAlive+10)
-					send(conn, ConnAck{})
+					send(netConn, ConnAck{})
 					defer c.Close()
 					q.logf("[%s] Connect(keep-alive=%s)\n", c.ID(), keepAlive)
 				} else {
@@ -160,7 +169,7 @@ func (q *Queue) handleConnection(conn net.Conn) {
 				}
 			case *Subscribe:
 				for _, t := range m.TopicFilters {
-					if err := c.Subscribe(t.TopicFilter, t.QoS, nil); err == nil {
+					if err := c.Subscribe(t.TopicFilter, t.QoS, publisher); err == nil {
 						q.logf("[%s] Subscribe(filter=%s, qos=%d)\n", c.ID(), t.TopicFilter, t.QoS)
 					}
 				}
@@ -189,17 +198,16 @@ func (q *Queue) handleConnection(conn net.Conn) {
 	}
 }
 
-func (q *Queue) connect(id string, conn net.Conn) (Connection, error) {
+func (q *Queue) connect(id string) (Connection, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if _, ok := q.connections[id]; ok {
 		return nil, fmt.Errorf("connection with id already exists")
 	}
-	c := &connection{
+	c := &localConnection{
 		queue: q,
 		id:    id,
 		subs:  map[Topic]sub{},
-		conn:  conn,
 	}
 	q.connections[id] = c
 	return c, nil

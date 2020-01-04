@@ -1,7 +1,7 @@
 package mqtt
 
 import (
-	"net"
+	"fmt"
 	"sync"
 )
 
@@ -13,52 +13,46 @@ type Connection interface {
 	Close() error
 }
 
-type connection struct {
+type localConnection struct {
 	queue *Queue
 	id    string
 	mu    sync.RWMutex
 	subs  map[Topic]sub
-	conn  net.Conn
 }
 
-func (c *connection) ID() string {
+func (c *localConnection) ID() string {
 	return c.id
 }
 
-func (c *connection) Subscribe(filter Topic, qos QoS, handler Handler) error {
+func (c *localConnection) Subscribe(filter Topic, qos QoS, handler Handler) error {
+	if handler == nil {
+		return fmt.Errorf("handler may not be nil")
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.subs[filter] = sub{filter: filter, qos: qos, handler: handler}
 	return nil
 }
 
-func (c *connection) Unsubscribe(filter Topic) error {
+func (c *localConnection) Unsubscribe(filter Topic) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.subs, filter)
 	return nil
 }
 
-func (c *connection) Publish(topic Topic, data []byte) error {
+func (c *localConnection) Publish(topic Topic, payload []byte) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	for _, sub := range c.subs {
 		if sub.filter.Accept(topic) {
-			if c.conn != nil {
-				err := send(c.conn, Publish{Topic: topic, Payload: data})
-				if err != nil {
-					return err
-				}
-			}
-			if sub.handler != nil {
-				sub.handler.HandleMQTT(c, Message{Topic: topic, Payload: data})
-			}
+			sub.handler.HandleMQTT(c, Message{Topic: topic, Payload: payload})
 		}
 	}
 	return nil
 }
 
-func (c *connection) Close() error {
+func (c *localConnection) Close() error {
 	return c.queue.disconnect(c.id)
 }
 

@@ -43,6 +43,9 @@ func (c *remoteConnection) Publish(topic Topic, data []byte) error {
 }
 
 func (c *remoteConnection) Subscribe(topicFilter Topic, qos QoS, handler Handler) error {
+	if handler == nil {
+		return fmt.Errorf("handler may not be nil")
+	}
 	err := c.send(Subscribe{TopicFilters: []TopicFilterQoS{{topicFilter, qos}}})
 	if err == nil {
 		c.mu.Lock()
@@ -71,7 +74,9 @@ func (c *remoteConnection) Close() error {
 func (c *remoteConnection) run() {
 	c.closed = make(chan struct{})
 	c.done = make(chan struct{})
-	c.send(Connect{ClientID: c.id, KeepAlive: c.keepAlive, CleanSession: true})
+
+	in := make(chan interface{})
+	defer close(in)
 	go func() {
 		scanner := NewScanner(c.conn)
 		for scanner.Scan() {
@@ -79,11 +84,18 @@ func (c *remoteConnection) run() {
 			v, err := unmarshal(msg)
 			if err != nil {
 				fmt.Printf("error: %+v\n", err)
+				return
 			}
-			c.received(v)
+			in <- v
 		}
-		fmt.Printf("error: %+v\n", scanner.Err())
+		switch scanner.Err() {
+		case io.EOF:
+		default:
+			fmt.Printf("error: %+v\n", scanner.Err())
+		}
 	}()
+
+	c.send(Connect{ClientID: c.id, KeepAlive: c.keepAlive, CleanSession: true})
 	for {
 		select {
 		case <-time.After(time.Second):
@@ -94,8 +106,27 @@ func (c *remoteConnection) run() {
 			c.send(Disconnect{})
 			close(c.closed)
 			return
+		case m, ok := <-in:
+			if !ok {
+				return
+			}
+			switch m := m.(type) {
+			case *Publish:
+				c.publish(m.Topic, m.Payload)
+			}
 		}
 	}
+}
+
+func (c *remoteConnection) publish(topic Topic, payload []byte) error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	for _, sub := range c.subs {
+		if sub.filter.Accept(topic) {
+			sub.handler.HandleMQTT(c, Message{Topic: topic, Payload: payload})
+		}
+	}
+	return nil
 }
 
 func (c *remoteConnection) send(v interface{}) error {
@@ -103,22 +134,7 @@ func (c *remoteConnection) send(v interface{}) error {
 		return err
 	}
 	c.lastSend = time.Now()
-	// fmt.Printf("%s → %#v\n", time.Now().UTC().Format(time.RFC3339), v)
 	return nil
-}
-
-func (c *remoteConnection) received(v interface{}) {
-	// fmt.Printf("%s ← %#v\n", time.Now().UTC().Format(time.RFC3339), v)
-	switch v := v.(type) {
-	case *Publish:
-		c.mu.RLock()
-		for _, sub := range c.subs {
-			if sub.filter.Accept(v.Topic) && sub.handler != nil {
-				sub.handler.HandleMQTT(c, Message{Topic: v.Topic, Payload: v.Payload})
-			}
-		}
-		c.mu.RUnlock()
-	}
 }
 
 func send(w io.Writer, v interface{}) error {
